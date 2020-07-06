@@ -1,7 +1,7 @@
 将程序修改的更具一般性：不仅仅能处理gff3格式，也要能处理gtf格式文件；
 将重复的函数，单独抽取出来作为module；
 
-Warning: 判定新gene的方式不应该仅仅依赖gff3第三列出现gene / nc_gene作为信号，而应该依据第9列中的Parent等属性。
+Warning: 判定新gene的方式不应该仅仅依赖gff3第三列出现gene / nc_gene作为信号，而应该依据第9列中的Parent等属性 ( 已改进)。
 
 
 本版本参数过多，应该采用globals()替换locals()，减少参数传递；
