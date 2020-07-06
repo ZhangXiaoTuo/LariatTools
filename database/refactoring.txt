@@ -2,3 +2,7 @@
 将重复的函数，单独抽取出来作为module；
 
 Warning: 判定新gene的方式不应该仅仅依赖gff3第三列出现gene / nc_gene作为信号，而应该依据第9列中的Parent等属性。
+
+
+本版本参数过多，应该采用globals()替换locals()，减少参数传递；
+并且应该增加split_annotation_line()及join_splited_annotation_line()两种函数的使用，在保持注释行以字符串形式传递的前提下，切割及合并注释行。
