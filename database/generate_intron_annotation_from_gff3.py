@@ -1,5 +1,8 @@
 import re, getopt, sys, datetime
-from getParm import obtain_parameters
+from sys import path
+path.append(r'../')
+from base.getParm import obtain_parameters
+
 
 ############
 # 需要注意gene为空和transcript为空的情况
