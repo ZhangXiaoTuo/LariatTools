@@ -1,174 +1,255 @@
-import re, getopt, sys, datetime
-from sys import path
-path.append(r'../')
-from base.getParm import obtain_parameters
+import re
+import getopt
+import sys
+import datetime
 
+col_seq, att_seq, att_ass = '\t', ';', '='
+att_transcript_name = "Parent"
+att_transcript_seq = ":"
+att_rank_key = 'rank'
+att_exon_key = 'exon_id'
+att_exon_alias = 'exon_id,Name'
+freature_gene_name = "gene,ncRNA_gene"
+freature_exon_name = "exon"
+replace_exon_key = "exon"
+replace_intron_key = "intron"
+output_order = "Parent,Name,constitutive,ensembl_end_phase,ensembl_phase,exon_id,rank"
+
+def usage():
+    print("""
+ USAGE: python generate_intron_annotation_from_gff3.py [options]
+ For example:
+  python generate_intron_annotation_from_gff3.py -i gene_annotation.gff3 -o intron_annotation.gff3 -g gene,ncRNA_gene -e exon -p Parent &
+
+ options:
+ -i: the gene annotation with gff3 format.
+ -o: the intron annotation with gff3 format (default: intron_annotation.gff3).
+ -g: the gene name of gff3 in 3rd column (default: gene).
+ -e: the exon name of gff3 in 3rd column (default: exon).
+ -p: the parent's attribute name in 9rd column of gff3 (default: Parent).
+ -h: print this page.
+ """)
+    sys.exit()
+
+
+def obtainParameter():
+    opts, args = getopt.getopt(sys.argv[1:], "hi:o:g:e:p:")
+    output_file = "intron_annotation.gff3"
+
+    if opts:
+        for op, value in opts:
+            if op == "-i":
+                input_file = value
+            elif op == "-o":
+                output_file = value
+            elif op == "-g":
+                freature_gene_name = value
+            elif op == "-e":
+                freature_exon_name = value
+            elif op == "-p":
+                att_transcript_name = value
+            elif op == "-h":
+                usage()
+    else:
+        usage()
+    return(input_file, output_file)
 
 ############
-# 需要注意gene为空和transcript为空的情况
-
-def write_gene_into_file(gene_dict, transcript_dict, gene_order, output_file):
-    with open(output_file, 'w') as o:
-        for gene in gene_order:
-            if gene in gene_dict:
-                for transcript in gene_dict[gene]:
-                    if transcript in transcript_dict:
-                        for exon in transcript_dict[transcript]:
-                            o.writelines(exon)
 
 
-def replace_exon_to_intron(exon, replace_strings):
-    exon = exon.replace(replace_strings[0], replace_strings[1])
-    return(exon)
-
-def join_splited_annotation_line(splited_line, Separator, attribute_assignment_operator, retained_attributes):
-    new_line = splited_line[:-1]
-    attributes = ''
-    for attribute in retained_attributes:
-        if attribute in splited_line[-1]:
-            attributes = attributes + attribute + attribute_assignment_operator + splited_line[-1][attribute] + Separator
-    new_line.append(attributes)
-    new_line = '\t'.join(new_line) + '\n'
-    return(new_line)
-
-def split_annotation_line(line, Separator, attribute_assignment_operator):
-    line = line.strip().split('\t')
-    attributes_dict = {}
-    attributes_list = line[-1].split(Separator)
-    for n in range(len(attributes_list)):
-        if attributes_list[n]:
-            att = attributes_list[n].split(attribute_assignment_operator)
-            attributes_dict[att[0]] = att[1]
-    line[-1] = attributes_dict
-    return(line)
-
-def unique_intron_id_per_gene(gene_dict, transcript_dict, Separator, attribute_assignment_operator, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings):
-    for gene in gene_dict:
-        unique_locu_dict = {}
-        for transcript in gene_dict[gene]:
-            for n in range(len(transcript_dict[transcript])):
-                exon = transcript_dict[transcript][n]
-                splited_line = split_annotation_line(exon, Separator, attribute_assignment_operator)
-                unique_locu = '_'.join((splited_line[0], splited_line[3], splited_line[4], splited_line[6]))
-                if exon_id_attribute in splited_line[-1]:
-                    if unique_locu in unique_locu_dict:
-                        splited_line[-1][exon_id_attribute] = unique_locu_dict[unique_locu]
-                    else:
-                        unique_locu_dict[unique_locu] = splited_line[-1][exon_id_attribute]
-                transcript_dict[transcript][n] = join_splited_annotation_line(splited_line, Separator, attribute_assignment_operator, retained_attributes)
-                transcript_dict[transcript][n] = replace_exon_to_intron(transcript_dict[transcript][n], replace_strings)
-    return(transcript_dict)
+def covert_str(exon):
+    new_atts = ''
+    for att in output_order:
+        if att in exon[-1]:
+            new_atts = new_atts + att + att_ass + exon[-1][att] + att_seq
+    output_str = col_seq.join(exon[:-1]) + col_seq + new_atts + '\n'
+    return(output_str)
 
 
-def generate_intron_attributes(exon, Separator, attribute_assignment_operator, node_connection_keyword, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings):
-    exon = exon.strip().split('\t')
-    atts = exon[-1].split(Separator)
-    atts_dict = {}
-    for n in range(len(atts)):
-        att = atts[n].split(attribute_assignment_operator)
-        atts_dict[att[0]] = att[1]
-    if (node_connection_keyword in atts_dict) and (exon_rank_attribute in atts_dict):
-        if exon_id_attribute in atts_dict:
-            atts_dict[exon_id_attribute] = atts_dict[node_connection_keyword] + '.' + replace_strings[0] + atts_dict[exon_rank_attribute]
-        # 'Name' 最好从参数处输入
-        elif 'Name' in atts_dict:
-            atts_dict['Name'] = atts_dict[node_connection_keyword] + '.' + replace_strings[0] + atts_dict[exon_rank_attribute]
-    atts_strs = ''
-    for att in retained_attributes:
-        atts_strs = atts_strs + att + attribute_assignment_operator + atts_dict[att] + Separator
-    exon[-1] = atts_strs
-    exon = '\t'.join(exon) + '\n'
-    return(exon)
-
-def assignment_intron_attributes_per_transcript(transcript_list, Separator, attribute_assignment_operator, node_connection_keyword, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings):
-    for n in range(len(transcript_list)):
-        transcript_list[n] = generate_intron_attributes(transcript_list[n], Separator, attribute_assignment_operator, node_connection_keyword, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings)
-    return(transcript_list)
-
-
-def generate_intron_locu(transcript_list):
-    for n in range(len(transcript_list)):
-        transcript_list[n] = transcript_list[n].strip().split('\t')
-    for n in range(len(transcript_list) - 1):
-        transcript_list[n][3] = str(int(transcript_list[n][4]) + 1)
-        transcript_list[n][4] = str(int(transcript_list[n + 1][3]) - 1)
-    for n in range(len(transcript_list)):
-        transcript_list[n] = '\t'.join(transcript_list[n]) + '\n'
-    return(transcript_list[:-1])
-
-def reverse_negative_strand_transcript(tmp_list, column, negative_symbol, column_separator):
-    is_negative = False
-    for element in tmp_list:
-        ele_symbol = element.split(column_separator)[column]
-        is_negative = is_negative or ele_symbol == negative_symbol
-    if is_negative:
-        tmp_list = tmp_list[::-1]
-    return(tmp_list)
-
-def generate_intron_per_transcript(transcript_list):
-    transcript_list = reverse_negative_strand_transcript(transcript_list, 6, '-', '\t')
-    transcript_list = generate_intron_locu(transcript_list)
-    transcript_list = reverse_negative_strand_transcript(transcript_list, 6, '-', '\t')
-    return(transcript_list)
-
-def generate_intron_region(gene_dict, transcript_dict, Separator, attribute_assignment_operator, node_connection_keyword, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings):
-    for transcript_id in transcript_dict:
-        transcript_dict[transcript_id] = generate_intron_per_transcript(transcript_dict[transcript_id])
-        transcript_dict[transcript_id] = assignment_intron_attributes_per_transcript(transcript_dict[transcript_id], Separator, attribute_assignment_operator, node_connection_keyword, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings)
-    transcript_dict = unique_intron_id_per_gene(gene_dict, transcript_dict, Separator, attribute_assignment_operator, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings)
-    return(gene_dict, transcript_dict)
-
-
-def add_affiliation_into_dict(gene_affiliation, gene_dict, transcript_dict, gene_order, transcript_id, line):
-    if transcript_id in gene_affiliation:
-        gene_id = gene_affiliation[transcript_id]
-        if gene_id in gene_dict:
-            if transcript_id not in gene_dict[gene_id]:
-                gene_dict[gene_id].append(transcript_id)
+def write_gene(whole_gene, o):
+    for transcript in whole_gene:
+        if transcript:
+            o.writelines("###\n")
+            for exon in transcript:
+                out = covert_str(exon)
+                out = out.replace(replace_exon_key, replace_intron_key)
+                o.writelines(out)
         else:
-            gene_dict[gene_id] = [transcript_id]
-            gene_order.append(gene_id)
-        if transcript_id in transcript_dict:
-            transcript_dict[transcript_id].append(line)
+            pass
+
+def remove_duplicate_minus_strand_intron_name(whole_gene):
+    intron_loci = {}
+    gene_len = len(whole_gene)
+    for m in range(gene_len):
+        tran_len = len(whole_gene[gene_len-m-1])
+        for n in range(tran_len):
+            exon = whole_gene[gene_len-m-1][tran_len-n-1]
+            intron_loci_str = '_'.join([exon[0], exon[3], exon[4], exon[6]])
+            if intron_loci_str not in intron_loci:
+                intron_loci[intron_loci_str] = exon[-1][att_exon_key]
+            else:
+                for name in att_exon_alias:
+                    whole_gene[gene_len-m-1][tran_len-n-1][-1][name] = intron_loci[intron_loci_str]
+    return(whole_gene)
+
+def remove_duplicate_plus_strand_intron_name(whole_gene):
+    intron_loci = {}
+    for m in range(len(whole_gene)):
+        for n in range(len(whole_gene[m])):
+            exon = whole_gene[m][n]
+            intron_loci_str = '_'.join([exon[0], exon[3], exon[4], exon[6]])
+            if intron_loci_str not in intron_loci:
+                intron_loci[intron_loci_str] = exon[-1][att_exon_key]
+            else:
+                for name in att_exon_alias:
+                    whole_gene[m][n][-1][name] = intron_loci[intron_loci_str]
+    return(whole_gene)
+
+def remove_duplicate_intron_name(whole_gene):
+    intron_loci = {}
+    if len(whole_gene[0])>0:
+        print(whole_gene)
+        strand_symbol = whole_gene[0][0][6]
+        if strand_symbol == '+':
+            whole_gene = remove_duplicate_plus_strand_intron_name(whole_gene)
+        elif strand_symbol == '-':
+            whole_gene = remove_duplicate_minus_strand_intron_name(whole_gene)
         else:
-            transcript_dict[transcript_id] = [line]
+            pass
     else:
-        print("Error: " + transcript_id + " in " + line + " don't have appear")
-    return(gene_affiliation, gene_dict, transcript_dict, gene_order)
-    
-def is_exon_annotation(line, exon_keyword):
-    is_exon = line.strip().split('\t')[2] == exon_keyword
-    if is_exon:
+        pass
+    return(whole_gene)
+
+
+def generate_intron_name(whole_gene):
+    for m in range(len(whole_gene)):
+        for n in range(len(whole_gene[m])):
+            exon = whole_gene[m][n]
+            intron_name = exon[-1][att_transcript_name].split(att_transcript_seq)[1] + replace_intron_key + exon[-1][att_rank_key]
+            whole_gene[m][n][-1][att_exon_key] = intron_name
+            for name in att_exon_alias:
+                whole_gene[m][n][-1][name] = whole_gene[m][n][-1][att_exon_key]
+    return(whole_gene)
+
+
+def generate_minus_strand_intron(transcript):
+    tran_len = len(transcript)
+    for n in range(1, tran_len):
+        transcript[-n][4] = str(int(transcript[-n][3]) - 1)
+        transcript[-n][3] = str(int(transcript[-n-1][4]) + 1)
+    transcript = transcript[1:]
+    return(transcript)
+
+def generate_plus_strand_intron(transcript):
+    for n in range(len(transcript) - 1):
+        transcript[n][3] = str(int(transcript[n][4]) + 1)
+        transcript[n][4] = str(int(transcript[n+1][3]) - 1)
+    transcript = transcript[:-1]
+    return(transcript)
+
+def get_transcript_strand(transcript):
+    strand_symbol = ''
+    for exon in transcript:
+        if not strand_symbol:
+            strand_symbol = exon[6]
+        elif strand_symbol != exon[6]:
+            print('there are different strand in:', transcript)
+            exit()
+        else:
+            pass
+    return(strand_symbol)
+
+
+def generate_intron_per_transcript(transcript):
+    strand_symbol = get_transcript_strand(transcript)
+    if strand_symbol == '+':
+        transcript = generate_plus_strand_intron(transcript)
+    elif strand_symbol == '-':
+        transcript = generate_minus_strand_intron(transcript)
+    else:
+        pass
+    return(transcript)
+
+
+def have_gene(whole_gene):
+    if whole_gene:
+        return(True)
+
+def write_gene_into_file(whole_gene, o):
+    if have_gene(whole_gene):
+        for n in range(len(whole_gene)):
+            whole_gene[n] = generate_intron_per_transcript(whole_gene[n])
+        whole_gene = generate_intron_name(whole_gene)
+        whole_gene = remove_duplicate_intron_name(whole_gene)
+        write_gene(whole_gene, o)
+    else:
+        pass
+
+
+def add_transcript_exon(whole_gene, line):
+    whole_gene[-1].append(line)
+    return(whole_gene)
+
+def add_transcript(whole_gene, line):
+    whole_gene.append([line])
+    return(whole_gene)
+
+def different_transcript(whole_gene, line):
+    gene_last_transcript_name = whole_gene[-1][-1][-1][att_transcript_name]
+    new_transcript_name = line[-1][att_transcript_name]
+    if gene_last_transcript_name != new_transcript_name:
         return(True)
     else:
         return(False)
 
-def build_affiliation_map(gene_affiliation, self_id, parent_id):
-    if self_id:
-        if  self_id not in gene_affiliation:
-            gene_affiliation[self_id] = parent_id
-    return(gene_affiliation)
 
-def obtain_id_from_attributes(attributes, root_note_attribute, node_connection_keyword):
-    self_id, parent_id = '', ''
-    if root_note_attribute in attributes:
-        self_id = attributes[root_note_attribute]
-    if node_connection_keyword in attributes:
-        parent_id = attributes[node_connection_keyword]
-    return(self_id, parent_id)
-
-def obtain_affiliation(gene_affiliation, gene_dict, transcript_dict, gene_order, line, Separator, attribute_assignment_operator, root_note_attribute, node_connection_keyword, exon_keyword):
-    splited_line = split_annotation_line(line, Separator, attribute_assignment_operator)
-    self_id, parent_id = obtain_id_from_attributes(splited_line[-1], root_note_attribute, node_connection_keyword)
-    gene_affiliation = build_affiliation_map(gene_affiliation, self_id, parent_id)
-    if is_exon_annotation(line, exon_keyword):
-        gene_affiliation, gene_dict, transcript_dict, gene_order = add_affiliation_into_dict(gene_affiliation, gene_dict, transcript_dict, gene_order, parent_id, line)
-    return(gene_affiliation, gene_dict, transcript_dict, gene_order)
+def is_new_transcript(whole_gene, line):
+    if not whole_gene:
+        return(True)
+    elif different_transcript(whole_gene, line):
+        return(True)
+    else:
+        return(False)
 
 
-def write_into_file(line, output_file):
-    with open(output_file, 'w') as o:
+def split_line_last_column(line):
+    line[-1] = line[-1].split(att_seq)
+    per_att_dict = {}
+    for n in range(len(line[-1])):
+        tmp_atts = line[-1][n].split(att_ass)
+        per_att_dict[tmp_atts[0]] = tmp_atts[1]
+    line[-1] = per_att_dict
+    return(line)
+
+
+def add_exon(whole_gene, line):
+    line = split_line_last_column(line)
+    if is_new_transcript(whole_gene, line):
+        whole_gene = add_transcript(whole_gene, line)
+    else:
+        whole_gene = add_transcript_exon(whole_gene, line)
+    return(whole_gene)
+
+
+def is_new_exon(line, freature_exon_name):
+    if line[2] in freature_exon_name:
+        return(True)
+    else:
+        return(False)
+
+
+def is_new_gene(line, freature_gene_name):
+    new_gene_symbol = False
+    if line[2] in freature_gene_name:
+        new_gene_symbol = True
+    return(new_gene_symbol)
+
+
+def write_into_file(line, o):
+    residue = line.strip().replace('#', '').replace(' ', '')
+    if residue:
         o.writelines(line)
+
 
 def not_annotation_line(line):
     if line[0] != '@' and line[0] != '#':
@@ -176,69 +257,40 @@ def not_annotation_line(line):
     else:
         return(False)
 
-def split_parms(parameters):
-    for parm in parameters:
-        if ',' in parameters[parm]:
-            parameters[parm] = parameters[parm].split(',')
-    return(parameters)
 
-def format_parameters():
-    usage_str = """Usage: python generate_intron_annotation_from_gff3.py [options]
-    options:
-    -i [str]  the gene annotation file name with gff3 format.
-    -o [str]  the intron annotation file name with gff3 format.
-    -e [str]  the Exon feature name in column 3 of gff3 (default: exon).
-    -s [str]  the Separator of attributes in column 9 of gff3 (default: ;).
-    -a [str]  the Assignment operator of attributes in column 9 of gff3 (default: =).
-    -r [str]  the Root node of attribute name in column 9 of gff3 (default: ID).
-    -c [str]  the node Connection keyword of attribute name in column 9 of gff3 (default: Parent).
-    -E [str]  the Exon id of attribute name in column 9 of gff3 (default: exon_id).
-    -R [str]  the exon Rank of attribute name in column 9 of gff3 (default: rank).
-    -n [str]  the Names of attribute name that needs to be retained in column 9 of gff3 (default: Parent,Name,constitutive,ensembl_end_phase,ensembl_phase,exon_id,rank).
-    -S [str]  the Strings needs to replace in gff3 (default 'exon' to be replace by 'intron': exon,intron).
-    """
+def get_introns_per_gene_from_gff3(input_file, output_file):
+    whole_gene = []
+    with open(input_file, 'r') as f:
+        with open(output_file, 'w') as o:
+            for line in f:
+                if not_annotation_line(line):
+                    line = line.strip().split(col_seq)
+                    if is_new_gene(line, freature_gene_name):
+                        write_gene_into_file(whole_gene, o)
+                        whole_gene = []
+                    elif is_new_exon(line, freature_exon_name):
+                        whole_gene = add_exon(whole_gene, line)
+                    else:
+                        pass
+                else:
+                    write_into_file(line, o)
+            write_gene_into_file(whole_gene, o)
 
-    input_parms = {'i':['input_file', ''],
-        'o':['output_file', ''],
-        'e':['exon_keyword', 'exon'],
-        's':['Separator', ';'],
-        'a':['attribute_assignment_operator', '='],
-        'r':['root_note_attribute', 'ID'],
-        'c':['node_connection_keyword', 'Parent'],
-        'E':['exon_id_attribute', 'exon_id'],
-        'R':['exon_rank_attribute', 'rank'],
-        'n':['retained_attributes', 'Parent,Name,constitutive,ensembl_end_phase,ensembl_phase,exon_id,rank'],
-        'S':['replace_strings', 'exon,intron']
-        }
-
-    # no_input_parms is dictory like input_parms, and set the value of index 1 as '' or False.
-    no_input_parms = {}
-
-    parameters = obtain_parameters(usage_str, input_parms, no_input_parms)
-    return(parameters)
 
 if __name__ == '__main__':
-    parameters = format_parameters()
-    parameters = split_parms(parameters)
-    for parm in parameters:
-        locals()[parm] = parameters[parm]
+
+    input_file, output_file = obtainParameter()
 
     startTime = datetime.datetime.now()
     print('Start Time:', startTime)
 
-    gene_affiliation, gene_dict, transcript_dict, gene_order = {}, {}, {}, []
-    with open(input_file, 'r') as f:
-        for line in f:
-            if not_annotation_line(line):
-                gene_affiliation, gene_dict, transcript_dict, gene_order = obtain_affiliation(gene_affiliation, gene_dict, transcript_dict, gene_order, line, Separator, attribute_assignment_operator, root_note_attribute, node_connection_keyword, exon_keyword)
-            else:
-                write_into_file(line, output_file)
-        gene_dict, transcript_dict = generate_intron_region(gene_dict, transcript_dict, Separator, attribute_assignment_operator, node_connection_keyword, exon_id_attribute, exon_rank_attribute, retained_attributes, replace_strings)
-        write_gene_into_file(gene_dict, transcript_dict, gene_order, output_file)
-
+    freature_gene_name = freature_gene_name.split(',')
+    freature_exon_name = freature_exon_name.split(',')
+    output_order = output_order.split(',')
+    att_exon_alias = att_exon_alias.split(',')
+    get_introns_per_gene_from_gff3(input_file, output_file)
 
     endTime = datetime.datetime.now()
     time = (endTime - startTime).seconds
     print('End Time:', endTime)
     print("This programme run: %s s" % (time))
-
